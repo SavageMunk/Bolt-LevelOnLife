@@ -2,6 +2,8 @@ import { useEffect, useState } from 'react'
 import { FiMenu } from 'react-icons/fi'
 import PartyPage from './PartyPage'
 import GuildPage from './GuildPage'
+import { db } from './firebase';
+import { collection, getDocs, addDoc, serverTimestamp, orderBy, query } from 'firebase/firestore'
 
 function App() {
   useEffect(() => {
@@ -10,6 +12,63 @@ function App() {
 
   const [menuOpen, setMenuOpen] = useState(false)
   const [currentPage, setCurrentPage] = useState<'feed' | 'party' | 'guild'>('feed')
+
+  // New: State to hold posts array
+  const [posts, setPosts] = useState<{ id: string; content: string; createdAt: any }[]>([])
+
+  // New: State to hold textarea input
+  const [postInput, setPostInput] = useState('')
+
+  // New: Fetch posts from Firestore on mount
+  useEffect(() => {
+    const fetchPosts = async () => {
+      try {
+        const postsRef = collection(db, 'posts')
+        // Query to order posts by timestamp descending (most recent first)
+        const q = query(postsRef, orderBy('createdAt', 'desc'))
+        const querySnapshot = await getDocs(q)
+        const postsData = querySnapshot.docs.map(doc => ({
+          id: doc.id,
+          content: doc.data().content,
+          createdAt: doc.data().createdAt
+        }))
+        setPosts(postsData)
+      } catch (error) {
+        console.error('Error fetching posts:', error)
+      }
+    }
+
+    if (currentPage === 'feed') {
+      fetchPosts()
+    }
+  }, [currentPage]) // Refetch posts when page changes back to feed
+
+  // New: Handle posting new content
+  const handlePost = async () => {
+    if (!postInput.trim()) return // Ignore empty posts
+
+    try {
+      const postsRef = collection(db, 'posts')
+      await addDoc(postsRef, {
+        content: postInput.trim(),
+        createdAt: serverTimestamp()
+      })
+
+      setPostInput('') // Clear textarea
+      // Refetch posts to include new one
+      const postsRefFresh = collection(db, 'posts')
+      const q = query(postsRefFresh, orderBy('createdAt', 'desc'))
+      const querySnapshot = await getDocs(q)
+      const postsData = querySnapshot.docs.map(doc => ({
+        id: doc.id,
+        content: doc.data().content,
+        createdAt: doc.data().createdAt
+      }))
+      setPosts(postsData)
+    } catch (error) {
+      console.error('Error adding post:', error)
+    }
+  }
 
   return (
     <div className="flex flex-col min-h-screen bg-background text-foreground">
@@ -65,17 +124,33 @@ function App() {
                 placeholder="What did you do today? Let TallTale know!"
                 className="flex-1 bg-transparent outline-none resize-none max-h-24 text-center"
                 rows={2}
+                value={postInput}
+                onChange={(e) => setPostInput(e.target.value)}
               />
-              <button className="self-end px-4 py-2 bg-primary text-white rounded-lg hover:bg-primary-dark transition">
+              <button
+                onClick={handlePost}
+                className="self-end px-4 py-2 bg-primary text-white rounded-lg hover:bg-primary-dark transition"
+              >
                 Post
               </button>
             </div>
           </div>
 
           {/* Main feed */}
-          <main className="flex-1 max-w-4xl w-full mx-auto px-6 mt-8 pb-10 text-center">
+          <main className="flex-1 max-w-4xl w-full mx-auto px-6 mt-8 pb-10 text-left">
             <h2 className="text-2xl font-semibold mb-4">Main Feed</h2>
-            <p>Your feed content will appear here.</p>
+            {posts.length === 0 ? (
+              <p>No posts yet. Be the first!</p>
+            ) : (
+              posts.map(post => (
+                <div
+                  key={post.id}
+                  className="border border-border rounded-md p-4 mb-4 bg-muted"
+                >
+                  <p>{post.content}</p>
+                </div>
+              ))
+            )}
           </main>
         </>
       )}
